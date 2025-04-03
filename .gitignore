@@ -1,0 +1,71 @@
+## Ignore build results
+**/bin/
+**/obj/
+**/[Bb]uild/
+**/[Bb]uild[Ll]og.*
+
+## Ignore Visual Studio settings
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Ignore Rider settings
+.idea/
+
+## Ignore temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+*.ncb
+*.cache
+*.ilk
+*.pdb
+
+## Ignore test results
+TestResults/
+*.trx
+
+## Ignore packages and NuGet-related files
+*.nupkg
+**/packages/
+*.snupkg
+**/project.lock.json
+**/project.fragment.lock.json
+**/artifacts/
+
+## Ignore publishing output
+**/.publish/
+*.publish.xml
+
+## Ignore dotnet CLI related files
+**/project.assets.json
+**/project.lock.json
+**/restore.dg
+
+## Ignore user-specific files
+*.vspscc
+*.vssscc
+*.userprefs
+
+## Ignore ReSharper files
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+## Ignore WPF-specific generated files
+**/Generated_Code/
+
+## Optional: ignore SQLite DBs or local data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+## Optional: ignore logs
+**/logs/
+*.log
+
+# End of .gitignore
