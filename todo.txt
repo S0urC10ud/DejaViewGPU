@@ -1,0 +1,3 @@
+- performance measuring
+- create slides
+- set repo to public
