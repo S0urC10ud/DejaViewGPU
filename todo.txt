@@ -1,3 +1,4 @@
 - performance measuring
 - create slides
 - set repo to public
+- UI Thread Übergaben anschauen
