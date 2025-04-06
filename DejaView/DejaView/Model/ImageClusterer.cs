@@ -25,7 +25,6 @@ namespace DejaView.Model
                 // Counter for completed outer iterations
                 int completed = 0;
                 
-                // Compare all unique pairs of images in parallel
                 Parallel.For(0, n, i =>
                 {
                     for (int j = i + 1; j < n; j++)

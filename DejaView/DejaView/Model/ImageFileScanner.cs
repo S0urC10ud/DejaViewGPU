@@ -6,78 +6,93 @@ namespace DejaView.Model
 {
     internal class ImageFileScanner
     {
-        public static List<string> GetAllImageFiles(string rootDirectory, CancellationToken cancellationToken = default)
+        // Loads the model into memory only once (ONNX is thread-safe)
+        private static readonly ImageProcessorSN SharedProcessorSN = new ImageProcessorSN();
+        private static readonly ImageProcessorMobileNet SharedProcessorMobileNet = new ImageProcessorMobileNet();
+
+        public static async Task<List<string>> GetAllImageFilesAsync(string rootDirectory, CancellationToken cancellationToken = default)
         {
-            HashSet<string> imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg" };
-            ConcurrentBag<string> result = new ConcurrentBag<string>();
+            var imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg" };
 
-            IEnumerable<string> directories = Directory.EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories).Prepend(rootDirectory);
+            // Use a thread-safe bag to accumulate results.
+            var result = new ConcurrentBag<string>();
 
-            Parallel.ForEach(directories, new ParallelOptions { CancellationToken = cancellationToken }, dir =>
-            {
-                try
+            IEnumerable<string> directories = Directory
+                .EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories)
+                .Prepend(rootDirectory);
+
+            // (available in .NET 6+)
+            await Parallel.ForEachAsync(
+                directories,
+                new ParallelOptions { CancellationToken = cancellationToken },
+                async (dir, token) =>
                 {
-                    foreach (var file in Directory.EnumerateFiles(dir))
+                    try
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-
-                        if (imageExtensions.Contains(Path.GetExtension(file)))
+                        // Wrap synchronous file enumeration in Task.Run to prevent blocking.
+                        string[] files = await Task.Run(() => Directory.GetFiles(dir), token);
+                        foreach (var file in files)
                         {
-                            result.Add(file);
+                            token.ThrowIfCancellationRequested();
+
+                            if (imageExtensions.Contains(Path.GetExtension(file)))
+                            {
+                                result.Add(file);
+                            }
                         }
                     }
-                }
-                catch (UnauthorizedAccessException) { /* Skip directories without access */ }
-                catch (IOException) { /* Handle or log if needed */ }
-            });
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Skip directories that cannot be accessed.
+                    }
+                    catch (IOException)
+                    {
+                        // I/O exceptions are ignored.
+                    }
+                });
 
             return result.ToList();
         }
+
         public static async Task<Dictionary<string, float[]>> ProcessAllFilesAsync(
             IEnumerable<string> filePaths,
             IProgress<int>? progress = null,
             CancellationToken cancellationToken = default)
         {
             int processedCount = 0;
-            // Limit the concurrency to a reasonable number (number of logical processors, accounts for SMT).
-            int maxDegreeOfParallelism = Environment.ProcessorCount;
-            SemaphoreSlim semaphore = new SemaphoreSlim(maxDegreeOfParallelism);
+            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
 
-            IEnumerable<Task> tasks = filePaths.Select(async file =>
-            {
-                // Wait until we can start another file read
-                await semaphore.WaitAsync(cancellationToken);
-                try
+            await Parallel.ForEachAsync(
+                filePaths,
+                new ParallelOptions
                 {
-                    // Read file content asynchronously without blocking a thread
-                    byte[] content = await File.ReadAllBytesAsync(file, cancellationToken);
-                    results[file] = GetVectorRepresentation(content);
-                }
-                catch (Exception ex)
+                    MaxDegreeOfParallelism = maxDegreeOfParallelism,
+                    CancellationToken = cancellationToken
+                },
+                async (file, ct) =>
                 {
-                    // Optionally log or handle individual file errors here
-                    Console.Error.WriteLine($"Error reading file '{file}': {ex.Message}");
-                }
-                finally
-                {
-                    semaphore.Release();
-                    if (progress != null)
+                    try
                     {
-                        int newCount = Interlocked.Increment(ref processedCount); // increment out of semaphore
-                        progress.Report(newCount);
+                        byte[] content = await File.ReadAllBytesAsync(file, ct);
+                        results[file] = SharedProcessorMobileNet.RunInference(content);
                     }
-                }
-            });
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Error reading or processing file '{file}': {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (progress != null)
+                        {
+                            int newCount = Interlocked.Increment(ref processedCount);
+                            System.Diagnostics.Debug.WriteLine($"Processed file {newCount}");
+                            progress.Report(newCount);
+                        }
+                    }
+                });
 
-            // Await all file-read tasks to complete
-            await Task.WhenAll(tasks);
             return results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-        }
-
-        private static float[] GetVectorRepresentation(byte[] content)
-        {
-            throw new NotImplementedException();
         }
     }
 }
