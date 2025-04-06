@@ -75,7 +75,13 @@ namespace DejaView.Model
                     try
                     {
                         byte[] content = await File.ReadAllBytesAsync(file, ct);
-                        results[file] = SharedProcessorMobileNet.RunInference(content);
+                        // TODO: Benchmark vs non-await and keeping it in the Threadpool
+                        results[file] = await Task.Factory.StartNew(
+                            () => SharedProcessorMobileNet.RunInference(content),
+                            ct,
+                            TaskCreationOptions.LongRunning, // Creates a new Thread as RunInference is CPU-heavy
+                            TaskScheduler.Default
+                        );
                     }
                     catch (Exception ex)
                     {
