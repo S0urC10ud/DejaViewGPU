@@ -21,7 +21,7 @@ namespace DejaView.Model
                 .EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories)
                 .Prepend(rootDirectory);
 
-            // (available in .NET 6+)
+            // (available in .NET 6+), suitable for I/O-bound or async operations
             await Parallel.ForEachAsync(
                 directories,
                 new ParallelOptions { CancellationToken = cancellationToken },
@@ -63,6 +63,7 @@ namespace DejaView.Model
             int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
 
+            // Todo: consider non-offloading async against threadpool-starvation if longrunning is not used https://chatgpt.com/c/67f39d44-c62c-800f-b2a2-326aa1e71f51
             await Parallel.ForEachAsync(
                 filePaths,
                 new ParallelOptions
