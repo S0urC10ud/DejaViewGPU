@@ -43,11 +43,14 @@ namespace DejaView
             try
             {
                 // TODO: Progress reporter and cancellation token
-                var imageFiles = await ImageFileScanner.GetAllImageFilesAsync(_selectedDirectory);
+                // Do not come back to the UI thread -> ConfigureAwait(false)
+                var imageFiles = await ImageFileScanner.GetAllImageFilesAsync(_selectedDirectory).ConfigureAwait(false);
 
-                var results = await ImageFileScanner.ProcessAllFilesAsync(imageFiles);
-                // TODO: ContinueWith comes back to UI thread?
+                // Get all files first to make proper progress bars
+                // Do not come back to the UI thread -> ConfigureAwait(false)
+                var results = await ImageFileScanner.ProcessAllFilesAsync(imageFiles).ConfigureAwait(false);
 
+                // Come back to the UI thread for displaying the results
                 var clusters = await ImageClusterer.ClusterSimilarImagesAsync(results, 0.99f); //TODO: supply actual similarity Threshold
 
                 System.Windows.MessageBox.Show($"Processed {results.Count} images into {clusters.Count} clusters.", "Processing Complete", MessageBoxButton.OK, MessageBoxImage.Information);
