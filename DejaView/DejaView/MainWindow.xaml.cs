@@ -123,6 +123,8 @@ namespace DejaView
         {
             Similarity = 0.9;
             Progress = 60;
+            ProgressTextStep = "Step 2/4";
+            ImagesFoundText = "found more images, could read all of them";
         }
     }
 }

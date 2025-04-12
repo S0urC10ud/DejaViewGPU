@@ -5,10 +5,9 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:DejaView"
         mc:Ignorable="d"
-        Title="DéjàView" Height="600" Width="800"
+        Title="DéjàView" Height="700" Width="900"
         Background="#FFCA6E"
-        Icon="pack://application:,,,/resources/logo.ico"
-        xmlns:vm="clr-namespace:DejaView">
+        Icon="pack://application:,,,/resources/logo.ico">
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -21,7 +20,7 @@
         </Grid.RowDefinitions>
 
         <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0 0 0 0" HorizontalAlignment="Center">
-            <Border Width="80" Height="100" ClipToBounds="True">
+            <Border Width="150" Height="150" ClipToBounds="True">
                 <Image Source="pack://application:,,,/resources/logo.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             
