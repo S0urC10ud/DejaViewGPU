@@ -4,6 +4,38 @@
              xmlns:local="clr-namespace:DejaView"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+
+        <!-- Global TextBlock Font -->
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Calibri"/>
+        </Style>
+
+        <!-- Global Button Style -->
+        <Style TargetType="Button">
+            <Setter Property="FontFamily" Value="Calibri"/>
+            <Setter Property="Background" Value="#13B3A3"/>
+            <Setter Property="Foreground" Value="#ffffff"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="12"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ProgressBar">
+            <Setter Property="Background" Value="#fff"/>
+            <Setter Property="Foreground" Value="#5B256F"/>
+        </Style>
+
     </Application.Resources>
 </Application>

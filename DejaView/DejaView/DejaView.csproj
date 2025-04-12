@@ -11,6 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="resources\logo.ico" />
+    <None Remove="resources\logo.png" />
     <None Remove="Static\mobilenetv2_dynamic.onnx" />
     <None Remove="Static\squeezenet1.1-7.onnx" />
     <None Remove="Static\taesd.onnx" />
@@ -22,8 +24,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.21.0" />
     <PackageReference Include="System.Drawing.Common" Version="9.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="resources\logo.ico" />
+    <Resource Include="resources\logo.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
   </ItemGroup>
 
 </Project>

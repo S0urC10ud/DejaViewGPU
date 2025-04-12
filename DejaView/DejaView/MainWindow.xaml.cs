@@ -1,4 +1,6 @@
 ﻿using System;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -6,12 +8,64 @@ using DejaView.Model;
 
 namespace DejaView
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private double _similarity = 0.95;
+        public double Similarity {
+            get => _similarity;
+            set
+            {
+                _similarity = value;
+                OnPropertyChanged();
+            }
+        }
+        private int _progress = 0;
+        public int Progress
+        {
+            get => _progress;
+            set
+            {
+                _progress = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ProgressPercent)); // Notify that ProgressPercent has changed too
+            }
+        }
+        public string ProgressPercent => Progress + "%";
+
+        private string _progressTextStep = "Step 1/4";
+        public string ProgressTextStep
+        {
+            get => _progressTextStep;
+            set
+            {
+                _progressTextStep = value;
+                OnPropertyChanged();
+            }
+        }
+        private string _imagesFoundText = "1234 images found, could not read 12 images";
+        public string ImagesFoundText
+        {
+            get => _imagesFoundText;
+            set
+            {
+                _imagesFoundText = value;
+                OnPropertyChanged();
+            }
+        }
+
+
         private string _selectedDirectory = string.Empty;
         public MainWindow()
         {
             InitializeComponent();
+            this.DataContext = this;
+        }
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
         private void btnSelectDirectory_Click(object sender, RoutedEventArgs e)
@@ -63,6 +117,12 @@ namespace DejaView
             {
                 btnStartProcessing.IsEnabled = true;
             }
+        }
+
+        private void btnPrevious_Click(object sender, RoutedEventArgs e)
+        {
+            Similarity = 0.9;
+            Progress = 60;
         }
     }
 }
