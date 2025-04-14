@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Concurrent;
 
 namespace DejaView.Model
 {
@@ -21,15 +16,15 @@ namespace DejaView.Model
                 List<string> keys = imageVectors.Keys.ToList();
                 int n = keys.Count;
                 ConcurrentBag<(int, int)> similarPairs = new ConcurrentBag<(int, int)>();
-                
+
                 // Counter for completed outer iterations
                 int nCompletedImages = 0;
-                
-                Parallel.For(0, n, i =>
+
+                ParallelOptions options = new ParallelOptions { CancellationToken = cancellationToken };
+                Parallel.For(0, n, options, i =>
                 {
                     for (int j = i + 1; j < n; j++)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
                         float similarity = CosineSimilarity(imageVectors[keys[i]], imageVectors[keys[j]]);
                         if (similarity >= similarityThreshold)
                         {
@@ -42,7 +37,7 @@ namespace DejaView.Model
                     {
                         int done = Interlocked.Increment(ref nCompletedImages);
                         double percent = ((double)done) / n * 100;
-                        progress.Report((int) Math.Ceiling(percent));
+                        progress.Report((int)Math.Ceiling(percent));
                     }
                 });
 
@@ -89,7 +84,7 @@ namespace DejaView.Model
                     clusters[root].Add(keys[i]);
                 }
 
-                return clusters.Values.ToList();
+                return clusters.Values.ToList().FindAll((c)=> c.Count > 1);
             }, cancellationToken);
         }
 

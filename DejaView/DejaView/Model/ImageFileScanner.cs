@@ -20,12 +20,12 @@ namespace DejaView.Model
     internal class ProcessedImagesResult
     {
         internal readonly Dictionary<string, float[]> embeddings;
-        internal readonly int nSkippedDFiles;
+        internal readonly int nSkippedImages;
 
         internal ProcessedImagesResult(Dictionary<string, float[]> embeddings, int nSkippedDFiles)
         {
             this.embeddings = embeddings;
-            this.nSkippedDFiles = nSkippedDFiles;
+            this.nSkippedImages = nSkippedDFiles;
         }
     }
 

@@ -1,11 +1,10 @@
-﻿using System.Drawing.Imaging;
-using System.IO;
-using Microsoft.ML.OnnxRuntime;
+﻿using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Reflection;
 
 
-// TODO: remove unused imports
 namespace DejaView
 {
     internal class ImageProcessorMobileNet
