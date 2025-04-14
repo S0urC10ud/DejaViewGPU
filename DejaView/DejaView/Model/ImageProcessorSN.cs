@@ -30,21 +30,21 @@ namespace DejaView
 
         public float[] RunInference(byte[] imageBytes)
         {
-            using var ms = new MemoryStream(imageBytes);
-            using var originalImage = new Bitmap(ms);
-            using var resizedImage = new Bitmap(originalImage, new Size(224, 224));
+            using MemoryStream ms = new MemoryStream(imageBytes);
+            using Bitmap originalImage = new Bitmap(ms);
+            using Bitmap resizedImage = new Bitmap(originalImage, new Size(224, 224));
 
             float[] imageData = NormalizeImage(resizedImage);
-            var inputTensor = CreateTensorFromImage(imageData, resizedImage.Width, resizedImage.Height);
+            Tensor<float> inputTensor = CreateTensorFromImage(imageData, resizedImage.Width, resizedImage.Height);
 
             string inputName = _session.InputMetadata.Keys.First();
-            var inputs = new List<NamedOnnxValue>
+            List<NamedOnnxValue> inputs = new List<NamedOnnxValue>
             {
                 NamedOnnxValue.CreateFromTensor<float>(inputName, inputTensor)
             };
 
             using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = _session.Run(inputs);
-            var outputTensor = results.First().AsTensor<float>();
+            Tensor<float> outputTensor = results.First().AsTensor<float>();
             return outputTensor.ToArray();
         }
 
@@ -87,7 +87,7 @@ namespace DejaView
 
         private DenseTensor<float> CreateTensorFromImage(float[] imageData, int width, int height)
         {
-            var tensor = new DenseTensor<float>(new[] { 1, 3, height, width });
+            DenseTensor<float> tensor = new DenseTensor<float>(new[] { 1, 3, height, width });
             imageData.CopyTo(tensor.Buffer.Span);
             return tensor;
         }

@@ -4,24 +4,54 @@ using System.IO;
 
 namespace DejaView.Model
 {
+    internal class RetrievedImagePathsResult
+    {
+        internal readonly List<string> files;
+        internal readonly int nSkippedDirectories;
+        internal readonly int nIOExceptions;
+
+        internal RetrievedImagePathsResult(List<string> files, int nSkippedDirectories, int nIOExceptions)
+        {
+            this.files = files;
+            this.nSkippedDirectories = nSkippedDirectories;
+            this.nIOExceptions = nIOExceptions;
+        }
+    }
+    internal class ProcessedImagesResult
+    {
+        internal readonly Dictionary<string, float[]> embeddings;
+        internal readonly int nSkippedDFiles;
+
+        internal ProcessedImagesResult(Dictionary<string, float[]> embeddings, int nSkippedDFiles)
+        {
+            this.embeddings = embeddings;
+            this.nSkippedDFiles = nSkippedDFiles;
+        }
+    }
+
     internal class ImageFileScanner
     {
         // Loads the model into memory only once (ONNX is thread-safe)
-        private static readonly ImageProcessorSN SharedProcessorSN = new ImageProcessorSN();
         private static readonly ImageProcessorMobileNet SharedProcessorMobileNet = new ImageProcessorMobileNet();
 
-        public static async Task<List<string>> GetAllImageFilesAsync(string rootDirectory, CancellationToken cancellationToken = default)
-        {
-            var imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg" };
+        // The following shared processor can be used as a drop-in replacement which runs a bit faster but has a lower quality in the embedding space:
+        // private static readonly ImageProcessorSN SharedProcessorSN = new ImageProcessorSN();
 
-            // Use a thread-safe bag to accumulate results.
-            var result = new ConcurrentBag<string>();
+        public static async Task<RetrievedImagePathsResult> GetAllImageFilesAsync(string rootDirectory, CancellationToken cancellationToken = default)
+        {
+            int nSkippedDirectories = 0;
+            int nIOExceptions = 0;
+
+            HashSet<string> imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg" };
+
+            // Use a thread-safe bag (as there is no concurrent set in .NET) to accumulate results
+            ConcurrentBag<string> result = new ConcurrentBag<string>();
 
             IEnumerable<string> directories = Directory
                 .EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories)
                 .Prepend(rootDirectory);
 
-            // (available in .NET 6+), suitable for I/O-bound or async operations
+            // Suitable for I/O-bound or async operations
             await Parallel.ForEachAsync(
                 directories,
                 new ParallelOptions { CancellationToken = cancellationToken },
@@ -29,7 +59,7 @@ namespace DejaView.Model
                 {
                     try
                     {
-                        // Wrap synchronous file enumeration in Task.Run to prevent blocking.
+                        // Wrap synchronous file enumeration in Task.Run to prevent blocking
                         string[] files = await Task.Run(() => Directory.GetFiles(dir), token);
                         foreach (var file in files)
                         {
@@ -43,23 +73,27 @@ namespace DejaView.Model
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        // Skip directories that cannot be accessed.
+                        // Skip directories that cannot be accessed
+                        Interlocked.Increment(ref nSkippedDirectories);
                     }
                     catch (IOException)
                     {
-                        // I/O exceptions are ignored.
+                        // I/O exceptions are ignored
+                        Interlocked.Increment(ref nIOExceptions);
                     }
                 });
 
-            return result.ToList();
+            return new RetrievedImagePathsResult(result.ToList(), nSkippedDirectories, nIOExceptions);
         }
 
-        public static async Task<Dictionary<string, float[]>> ProcessAllFilesAsync(
+        public static async Task<ProcessedImagesResult> ProcessAllFilesAsync(
             IEnumerable<string> filePaths,
             IProgress<int>? progress = null,
             CancellationToken cancellationToken = default)
         {
             int processedCount = 0;
+            int nSkippedFiles = 0;
+            int nFilePaths = filePaths.Count();
             int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
 
@@ -71,35 +105,34 @@ namespace DejaView.Model
                     MaxDegreeOfParallelism = maxDegreeOfParallelism,
                     CancellationToken = cancellationToken
                 },
-                async (file, ct) =>
+                async (file, token) =>
                 {
                     try
                     {
-                        byte[] content = await File.ReadAllBytesAsync(file, ct);
+                        byte[] content = await File.ReadAllBytesAsync(file, token);
                         // TODO: Benchmark vs non-await and keeping it in the Threadpool
                         results[file] = await Task.Factory.StartNew(
                             () => SharedProcessorMobileNet.RunInference(content),
-                            ct,
+                            token,
                             TaskCreationOptions.LongRunning, // Creates a new Thread as RunInference is CPU-heavy
                             TaskScheduler.Default
                         );
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        Console.Error.WriteLine($"Error reading or processing file '{file}': {ex.Message}");
+                        Interlocked.Increment(ref nSkippedFiles);
                     }
                     finally
                     {
                         if (progress != null)
                         {
                             int newCount = Interlocked.Increment(ref processedCount);
-                            System.Diagnostics.Debug.WriteLine($"Processed file {newCount}");
-                            progress.Report(newCount);
+                            progress.Report((int) Math.Ceiling(((double) newCount) / nFilePaths * 100));
                         }
                     }
                 });
 
-            return results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            return new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles);
         }
     }
 }

@@ -12,8 +12,8 @@ namespace DejaView
     {
         public event PropertyChangedEventHandler? PropertyChanged;
 
-        private double _similarity = 0.95;
-        public double Similarity {
+        private float _similarity = 0.95f;
+        public float Similarity {
             get => _similarity;
             set
             {
@@ -33,6 +33,8 @@ namespace DejaView
             }
         }
         public string ProgressPercent => Progress + "%";
+
+        public IProgress<int> ProgressReporter { get; }
 
         private string _progressTextStep = "Step 1/4";
         public string ProgressTextStep
@@ -57,10 +59,13 @@ namespace DejaView
 
 
         private string _selectedDirectory = string.Empty;
+        private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
+
         public MainWindow()
         {
             InitializeComponent();
-            this.DataContext = this;
+            DataContext = this;
+            ProgressReporter = new Progress<int>(value => Progress = value);
         }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -68,7 +73,7 @@ namespace DejaView
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
-        private void btnSelectDirectory_Click(object sender, RoutedEventArgs e)
+        private void BtnSelectDirectory_Click(object sender, RoutedEventArgs e)
         {
             using (var dialog = new FolderBrowserDialog())
             {
@@ -84,7 +89,24 @@ namespace DejaView
             }
         }
 
-        private async void btnStartProcessing_Click(object sender, RoutedEventArgs e)
+        private void BtnStartProcessing_Click(object sender, RoutedEventArgs e)
+        {
+            if ((string)btnStartProcessing.Content == "Start Processing")
+            {
+                btnStartProcessing.Content = "Cancel";
+                ProcessFiles();
+            }
+            else
+            {
+                // TODO: cancel processing
+                _cancellationTokenSource.Cancel();
+                ProgressReporter.Report(0);
+                btnStartProcessing.Content = "Start Processing";
+            }
+
+        }
+
+        private async void ProcessFiles()
         {
             if (string.IsNullOrWhiteSpace(_selectedDirectory))
             {
@@ -92,36 +114,39 @@ namespace DejaView
                 return;
             }
 
-            // Disable the start button to prevent multiple processing requests.
-            btnStartProcessing.IsEnabled = false;
             try
             {
-                // TODO: Progress reporter and cancellation token
+                ProgressTextStep = "Step 1/2";
+                // TODO: maybe Progress reporter??
                 // Do not come back to the UI thread -> ConfigureAwait(false)
-                var imageFiles = await ImageFileScanner.GetAllImageFilesAsync(_selectedDirectory).ConfigureAwait(false);
+                RetrievedImagePathsResult imageFiles = await ImageFileScanner.GetAllImageFilesAsync(_selectedDirectory, _cancellationTokenSource.Token).ConfigureAwait(false);
+
+                // TODO: warning if no images were found
 
                 // Get all files first to make proper progress bars
                 // Do not come back to the UI thread -> ConfigureAwait(false)
-                var results = await ImageFileScanner.ProcessAllFilesAsync(imageFiles).ConfigureAwait(false);
+                ProcessedImagesResult results = await ImageFileScanner.ProcessAllFilesAsync(imageFiles.files, ProgressReporter, _cancellationTokenSource.Token).ConfigureAwait(false);
+
+                ProgressReporter.Report(0);
+                ProgressTextStep = "Step 2/2";
 
                 // Come back to the UI thread for displaying the results
-                var clusters = await ImageClusterer.ClusterSimilarImagesAsync(results, 0.99f); //TODO: supply actual similarity Threshold
-
-                System.Windows.MessageBox.Show($"Processed {results.Count} images into {clusters.Count} clusters.", "Processing Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+                List<List<string>> clusters = await ImageClusterer.ClusterSimilarImagesAsync(results.embeddings, Similarity, ProgressReporter, _cancellationTokenSource.Token); //TODO: add cancelation token
+            }
+            catch (OperationCanceledException)
+            {
+                _cancellationTokenSource.Dispose();
+                _cancellationTokenSource = new CancellationTokenSource();
             }
             catch (Exception ex)
             {
                 System.Windows.MessageBox.Show($"Error processing images: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            finally
-            {
-                btnStartProcessing.IsEnabled = true;
-            }
         }
 
-        private void btnPrevious_Click(object sender, RoutedEventArgs e)
+        private void BtnPrevious_Click(object sender, RoutedEventArgs e)
         {
-            Similarity = 0.9;
+            Similarity = 0.9f;
             Progress = 60;
             ProgressTextStep = "Step 2/4";
             ImagesFoundText = "found more images, could read all of them";

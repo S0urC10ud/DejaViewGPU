@@ -29,7 +29,7 @@
 
             <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0 0 0 10" HorizontalAlignment="Center">
                 <TextBlock x:Name="txtSelectedDirectory" Text="No directory selected" FontSize="20" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="0 0 50 0" Width="250"/>
-                <Button x:Name="btnSelectDirectory" Content="Select Directory" Width="150" Height="30" Click="btnSelectDirectory_Click" FontSize="20"/>
+                <Button x:Name="btnSelectDirectory" Content="Select Directory" Width="150" Height="30" Click="BtnSelectDirectory_Click" FontSize="20"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0 0 0 10" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -50,7 +50,7 @@
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Grid.Row="3" Margin="0 0 0 10" HorizontalAlignment="Center">
-                <Button x:Name="btnStartProcessing" Content="Start Processing" Width="200" Height="30" FontSize="20" Click="btnStartProcessing_Click" IsEnabled="False" Margin="0 30" HorizontalAlignment="Center"/>
+                <Button x:Name="btnStartProcessing" Content="Start Processing" Width="200" Height="30" FontSize="20" Click="BtnStartProcessing_Click" IsEnabled="False" Margin="0 30" HorizontalAlignment="Center"/>
             </StackPanel>
 
             <StackPanel Orientation="Vertical" Grid.Row="4" HorizontalAlignment="Center" Margin="0 10">
@@ -77,16 +77,16 @@
                 <!-- Left Column -->
                 <StackPanel Grid.Column="0" Margin="10">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0 0 0 20">
-                        <Button x:Name="btnPrevious" Content="Previous" Width="70" Height="25" FontSize="15" Margin="0 0 5 0" Click="btnPrevious_Click"/>
-                        <Button x:Name="btnNext" Content="Next" Width="70" Height="25" Click="btnSelectDirectory_Click" FontSize="15" Margin="5 0 0 0"/>
+                        <Button x:Name="btnPrevious" Content="Previous" Width="70" Height="25" FontSize="15" Margin="0 0 5 0" Click="BtnPrevious_Click"/>
+                        <Button x:Name="btnNext" Content="Next" Width="70" Height="25" Click="BtnSelectDirectory_Click" FontSize="15" Margin="5 0 0 0"/>
                     </StackPanel>
 
                     <Border Width="150" Height="150" ClipToBounds="True">
                         <Image Source="C:\Users\lisak\Documents\Freizeit\fotos eli\IMG_4621.HEIC" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                        <Button x:Name="btnOpen" Content="Open" Width="45" Height="20" Click="btnSelectDirectory_Click" FontSize="12" Margin="0 2 5 0"/>
-                        <Button x:Name="btnDelete" Content="Delete" Width="45" Height="20" Click="btnSelectDirectory_Click" FontSize="12" Margin="5 2 0 0"/>
+                        <Button x:Name="btnOpen" Content="Open" Width="45" Height="20" Click="BtnSelectDirectory_Click" FontSize="12" Margin="0 2 5 0"/>
+                        <Button x:Name="btnDelete" Content="Delete" Width="45" Height="20" Click="BtnSelectDirectory_Click" FontSize="12" Margin="5 2 0 0"/>
                     </StackPanel>
                 </StackPanel>
 

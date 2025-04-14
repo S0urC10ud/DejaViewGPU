@@ -12,10 +12,10 @@ namespace DejaView.Model
         public static async Task<List<List<string>>> ClusterSimilarImagesAsync(
             Dictionary<string, float[]> imageVectors,
             float similarityThreshold,
-            IProgress<double> progress = null,
+            IProgress<int>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            // Do not use the UI Thread
+            // Do not block the caller
             return await Task.Run(() =>
             {
                 List<string> keys = imageVectors.Keys.ToList();
@@ -23,7 +23,7 @@ namespace DejaView.Model
                 ConcurrentBag<(int, int)> similarPairs = new ConcurrentBag<(int, int)>();
                 
                 // Counter for completed outer iterations
-                int completed = 0;
+                int nCompletedImages = 0;
                 
                 Parallel.For(0, n, i =>
                 {
@@ -40,9 +40,9 @@ namespace DejaView.Model
                     // Update progress after processing each outer iteration (each image)
                     if (progress != null)
                     {
-                        int done = Interlocked.Increment(ref completed);
-                        double percent = (double)done / n * 100;
-                        progress.Report(percent);
+                        int done = Interlocked.Increment(ref nCompletedImages);
+                        double percent = ((double)done) / n * 100;
+                        progress.Report((int) Math.Ceiling(percent));
                     }
                 });
 

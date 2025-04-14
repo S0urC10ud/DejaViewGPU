@@ -1,13 +1,11 @@
-﻿using System;
-using System.Drawing;
-using System.Drawing.Imaging;
+﻿using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
-using System.Collections.Generic;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using System.Reflection;
 
+
+// TODO: remove unused imports
 namespace DejaView
 {
     internal class ImageProcessorMobileNet
@@ -18,7 +16,7 @@ namespace DejaView
         public ImageProcessorMobileNet()
         {
             Assembly assembly = Assembly.GetExecutingAssembly();
-            // Note that this model was custom-exported from pytorch (create_model.py)
+            // Note that this model was custom-exported from PyTorch (create_model.py)
             using Stream? stream = assembly.GetManifestResourceStream("DejaView.Static.mobilenetv2_dynamic.onnx")
                 ?? throw new FileNotFoundException("Embedded MobileNet model not found.");
 
@@ -31,22 +29,22 @@ namespace DejaView
 
         public float[] RunInference(byte[] imageBytes)
         {
-            using var ms = new MemoryStream(imageBytes);
-            using var originalImage = new Bitmap(ms);
+            using MemoryStream ms = new MemoryStream(imageBytes);
+            using Bitmap originalImage = new Bitmap(ms);
 
             // Preprocessing (model requirement)
-            using var processedImage = PadImageIfNecessary(originalImage);
+            using Bitmap processedImage = PadImageIfNecessary(originalImage);
             float[] imageData = NormalizeImage(processedImage);
-            var inputTensor = CreateTensorFromImage(imageData, processedImage.Width, processedImage.Height);
+            DenseTensor<float> inputTensor = CreateTensorFromImage(imageData, processedImage.Width, processedImage.Height);
 
             string inputName = _session.InputMetadata.Keys.First();
-            var inputs = new List<NamedOnnxValue>
+            List<NamedOnnxValue> inputs = new List<NamedOnnxValue>
             {
                 NamedOnnxValue.CreateFromTensor<float>(inputName, inputTensor)
             };
 
             using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = _session.Run(inputs);
-            var outputTensor = results.First().AsTensor<float>();
+            Tensor<float> outputTensor = results.First().AsTensor<float>();
             return outputTensor.ToArray();
         }
 
@@ -67,7 +65,7 @@ namespace DejaView
             Bitmap paddedImage = new Bitmap(paddedWidth, paddedHeight);
             using (Graphics graphics = Graphics.FromImage(paddedImage))
             {
-                graphics.Clear(Color.White); //white padding
+                graphics.Clear(Color.White); // White padding
 
                 int offsetX = (paddedWidth - width) / 2;
                 int offsetY = (paddedHeight - height) / 2;
@@ -81,14 +79,14 @@ namespace DejaView
         {
             int width = image.Width;
             int height = image.Height;
-            // Output array with three channels (R, G, B) in CHW order.
+            // Output array with three channels (R, G, B) in CHW order
             float[] data = new float[3 * width * height];
 
-            // Normalization parameters for ImageNet.
+            // Normalization parameters for ImageNet
             float[] mean = { 0.485f, 0.456f, 0.406f };
             float[] std = { 0.229f, 0.224f, 0.225f };
 
-            // Lock the bitmap data for efficient access.
+            // Lock the bitmap data for efficient access
             BitmapData bitmapData = image.LockBits(new Rectangle(0, 0, width, height),
                 ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
 
@@ -100,11 +98,11 @@ namespace DejaView
                     for (int x = 0; x < width; x++)
                     {
                         int pixelIndex = y * width + x;
-                        // Format24bppRgb: pixel order is Blue, Green, Red.
+                        // Format24bppRgb: pixel order is Blue, Green, Red
                         float r = row[x * 3 + 2] / 255.0f;
                         float g = row[x * 3 + 1] / 255.0f;
                         float b = row[x * 3 + 0] / 255.0f;
-                        // Store in CHW order.
+                        // Store in CHW order
                         data[pixelIndex] = (r - mean[0]) / std[0];
                         data[width * height + pixelIndex] = (g - mean[1]) / std[1];
                         data[2 * width * height + pixelIndex] = (b - mean[2]) / std[2];
@@ -118,7 +116,7 @@ namespace DejaView
 
         private DenseTensor<float> CreateTensorFromImage(float[] imageData, int width, int height)
         {
-            var tensor = new DenseTensor<float>(new[] { 1, 3, height, width });
+            DenseTensor<float> tensor = new DenseTensor<float>(new[] { 1, 3, height, width });  // nSamples (in batch), nChannels, height, width
             imageData.CopyTo(tensor.Buffer.Span);
             return tensor;
         }
