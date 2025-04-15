@@ -58,7 +58,8 @@ namespace DejaView.Model
             // ConfigureAwait(false): don't necessarily come back to UI Thread
             IEnumerable<string> directories = await Task.Run(() =>
                         Directory.EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories)
-                                                        .Prepend(rootDirectory), cancellationToken).ConfigureAwait(false);
+                                                        .Prepend(rootDirectory), cancellationToken)
+                                                        .ConfigureAwait(false);
 
             // Process each directory sequentially in an async loop.
             foreach (string dir in directories)
