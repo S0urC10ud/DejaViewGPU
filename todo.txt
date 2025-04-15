@@ -1,4 +1,4 @@
-- performance measuring
-- create slides, create readme (esp. note little memory demand)
+x performance measuring
+x create slides, create readme (esp. note little memory demand)
 - set repo to public
-- UI Thread Übergaben anschauen
+x UI Thread Übergaben anschauen
