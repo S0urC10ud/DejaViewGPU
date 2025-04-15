@@ -41,8 +41,7 @@
                     <TextBlock Text="similar" FontSize="12" TextAlignment="Center"/>
                 </StackPanel>
 
-                <Slider x:Name ="sliderSimilarity" Minimum="0.9" Maximum="1" Width="200" VerticalAlignment="Center" Value="{Binding Similarity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-/>
+                <Slider x:Name ="sliderSimilarity" Minimum="0.9" Maximum="1" Width="200" VerticalAlignment="Center" Value="{Binding Similarity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="10 0 0 0">
                     <TextBlock Text="only" FontSize="12" TextAlignment="Center"/>
@@ -59,9 +58,7 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                     <TextBlock x:Name="txtStep" Text="{Binding ProgressTextStep, Mode=OneWay, UpdateSourceTrigger=PropertyChanged}" FontSize="12" HorizontalAlignment="Center" Margin="0 5 10 0"/>
                     <TextBlock x:Name="progressText" Text="{Binding ProgressPercent, Mode=OneWay, UpdateSourceTrigger=PropertyChanged}" FontSize="12" HorizontalAlignment="Center" Margin="0 5 0 0"/>
-
                 </StackPanel>
-
             </StackPanel>
 
             <StackPanel Grid.Row="5">

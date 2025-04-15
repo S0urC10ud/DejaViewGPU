@@ -19,7 +19,7 @@ namespace DejaView
 
         private int currClusterId = 0;
 
-        private List<List<string>> clusters;
+        private List<List<string>>? clusters;
 
         private float _similarity = 0.95f;
         public float Similarity
@@ -39,7 +39,7 @@ namespace DejaView
             {
                 _progress = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(ProgressPercent)); // Notify that ProgressPercent has changed too
+                OnPropertyChanged(nameof(ProgressPercent)); // Notify that ProgressPercent should change too
             }
         }
         public string ProgressPercent => Progress + "%";
@@ -77,7 +77,6 @@ namespace DejaView
                 OnPropertyChanged();
             }
         }
-
 
         private string _selectedDirectory = string.Empty;
         private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
@@ -118,7 +117,7 @@ namespace DejaView
                 {
                     _selectedDirectory = dialog.SelectedPath;
                     txtSelectedDirectory.Text = _selectedDirectory;
-                    // Enable the start processing button once a directory is selected.
+                    // Enable the start processing button once a directory is selected
                     btnStartProcessing.IsEnabled = true;
                 }
             }
@@ -162,14 +161,14 @@ namespace DejaView
                 // We have to come back to the UI thread -> no ConfigureAwait(false) needed
                 RetrievedImagePathsResult retrievedImagePathsResult = await ImageFileScanner.GetAllImagePathsAsync(_selectedDirectory, _cancellationTokenSource.Token);
 
-                ImagesFoundText = $"Found {retrievedImagePathsResult.files.Count()} images.";
+                ImagesFoundText = retrievedImagePathsResult.files.Count() == 1 ? "Found 1 image." : $"Found {retrievedImagePathsResult.files.Count()} images.";
                 if (retrievedImagePathsResult.nSkippedDirectories > 0)
-                    ImagesFoundText += $" Could not access {retrievedImagePathsResult.nSkippedDirectories} directories.";
+                    ImagesFoundText += retrievedImagePathsResult.nSkippedDirectories == 1 ? " Could not access 1 directory." : $" Could not access {retrievedImagePathsResult.nSkippedDirectories} directories.";
                 if (retrievedImagePathsResult.nIOExceptions > 0)
-                    ImagesFoundText += $" Encountered {retrievedImagePathsResult.nIOExceptions} IO exceptions.";
+                    ImagesFoundText += retrievedImagePathsResult.nIOExceptions == 1 ? " Encountered 1 IO exception." : $" Encountered {retrievedImagePathsResult.nIOExceptions} IO exceptions.";
 
 
-                if(retrievedImagePathsResult.files.Count == 0)
+                if (retrievedImagePathsResult.files.Count == 0)
                 {
                     System.Windows.MessageBox.Show("Please choose a directory containing jpg, jpeg or png files.", "No images found", MessageBoxButton.OK, MessageBoxImage.Information);
                     btnStartProcessing.Content = "Start Processing";
@@ -177,11 +176,11 @@ namespace DejaView
                     return;
                 }
 
-                // Get all files first to make proper progress bars
+                // Get all files first to enable proper progress reporting
                 ProcessedImagesResult processedImagesResult = await ImageFileScanner.ProcessAllFilesLongRunningForEachAsync(retrievedImagePathsResult.files, ProgressReporter, _cancellationTokenSource.Token);
 
                 if (processedImagesResult.nSkippedImages > 0)
-                    ImagesFoundText += $"\nCould not process {processedImagesResult.nSkippedImages} images. ";
+                    ImagesFoundText += processedImagesResult.nSkippedImages == 1 ? "\nCould not process 1 image. " : $"\nCould not process {processedImagesResult.nSkippedImages} images. ";
                 else
                     ImagesFoundText += "\n";
 
@@ -191,14 +190,12 @@ namespace DejaView
                 clusters = await ImageClusterer.ClusterSimilarImagesAsync(processedImagesResult.embeddings, Similarity, ProgressReporter, _cancellationTokenSource.Token);
                 if (clusters.Count > 0)
                 {
-                    ImagesFoundText += $"Grouped images into {clusters.Count()} clusters.";
+                    ImagesFoundText += clusters.Count() == 1 ? "Grouped images into 1 cluster." : $"Grouped images into {clusters.Count()} clusters.";
                     currClusterId = 0;
                     DisplayCluster();
                 }
                 else
-                {
                     System.Windows.MessageBox.Show($"No clusters found - consider lowering the similarity threshold or adding more similar images.", "No groups found", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
             }
             catch (OperationCanceledException)
             {
@@ -216,11 +213,13 @@ namespace DejaView
 
         private async void DisplayCluster()
         {
+            if (clusters is null)
+                return;
+
             ForwardBackwardVisibility = Visibility.Visible;
             StartOverCancellationToken = new CancellationTokenSource();
             ClearImages();
             spinnerOverlay.Visibility = Visibility.Visible;
-
 
             btnPrevious.IsEnabled = currClusterId != 0;
             btnNext.IsEnabled = currClusterId != clusters.Count - 1;
@@ -230,11 +229,11 @@ namespace DejaView
                 foreach (string imagePath in clusters[currClusterId])
                 {
                     StartOverCancellationToken.Token.ThrowIfCancellationRequested();
-                    await Task.Delay(20); // Free up the UI Thread 
+                    await Task.Delay(10); // Free up the UI thread periodically
                     imageWrapPanel.Children.Add(CreateImageContainer(imagePath));
                 }
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException)
             {
                 ClearImages();
             }
@@ -255,7 +254,7 @@ namespace DejaView
             {
                 Width = 150,
                 Height = 150,
-                ClipToBounds = true
+                ClipToBounds = true  // Elements will not leave the border
             };
 
             System.Windows.Controls.Image img = new System.Windows.Controls.Image
@@ -327,6 +326,11 @@ namespace DejaView
             currClusterId--;
             DisplayCluster();
         }
+        private void BtnNext_Click(object sender, RoutedEventArgs e)
+        {
+            currClusterId++;
+            DisplayCluster();
+        }
 
         private void BtnOpen_Click(object sender, RoutedEventArgs e)
         {
@@ -334,18 +338,7 @@ namespace DejaView
             {
                 try
                 {
-                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Process.Start(new ProcessStartInfo(imagePath) { UseShellExecute = true });
-                    }
-                    else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-                    {
-                        Process.Start("open", imagePath);
-                    }
-                    else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                    {
-                        Process.Start("xdg-open", imagePath);
-                    }
+                    Process.Start(new ProcessStartInfo(imagePath) { UseShellExecute = true });
                 }
                 catch (Exception ex)
                 {
@@ -357,6 +350,9 @@ namespace DejaView
 
         private void BtnDelete_Click(object sender, RoutedEventArgs e)
         {
+            if (clusters == null)
+                return;
+
             if (sender is System.Windows.Controls.Button btn && btn.Tag is Tuple<string, StackPanel> tagData)
             {
                 MessageBoxResult result = System.Windows.MessageBox.Show(
@@ -376,7 +372,7 @@ namespace DejaView
                         if (container.Children.Count > 0 && container.Children[0] is Border imageBorder)
                         {
                             imageBorder.Opacity = 0.4;
-                            container.Children.RemoveAt(1);
+                            container.Children.RemoveAt(1); // Remove StackPanel with Buttons
                         }
                         clusters[currClusterId].Remove(imagePath);
                     }
@@ -387,12 +383,6 @@ namespace DejaView
                     }
                 }
             }
-        }
-
-        private void BtnNext_Click(object sender, RoutedEventArgs e)
-        {
-            currClusterId++;
-            DisplayCluster();
         }
     }
 }

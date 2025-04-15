@@ -4,7 +4,6 @@ using System.IO;
 
 namespace DejaView.Model
 {
-    // Public for Benchmarking
     public class RetrievedImagePathsResult
     {
         internal readonly List<string> files;
@@ -24,10 +23,10 @@ namespace DejaView.Model
         internal readonly Dictionary<string, float[]> embeddings;
         internal readonly int nSkippedImages;
 
-        internal ProcessedImagesResult(Dictionary<string, float[]> embeddings, int nSkippedDFiles)
+        internal ProcessedImagesResult(Dictionary<string, float[]> embeddings, int nSkippedImages)
         {
             this.embeddings = embeddings;
-            this.nSkippedImages = nSkippedDFiles;
+            this.nSkippedImages = nSkippedImages;
         }
     }
 
@@ -37,14 +36,14 @@ namespace DejaView.Model
         // Loads the model into memory only once (ONNX is thread-safe)
         private static readonly ImageProcessorMobileNet SharedProcessorMobileNet = new ImageProcessorMobileNet();
 
-        // The following shared processor can be used as a drop-in replacement which runs a bit faster but has a lower quality in the embedding space:
+        // The following shared processor can be used as a drop-in replacement which runs a bit faster but has a lower-quality embedding space:
         // private static readonly ImageProcessorSN SharedProcessorSN = new ImageProcessorSN();
 
         public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(string rootDirectory, CancellationToken cancellationToken = default)
         {
             int nSkippedDirectories = 0;
             int nIOExceptions = 0;
-            HashSet<string> imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase){".png", ".jpg", ".jpeg"};
+            HashSet<string> imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg" };
 
             // Since directory enumeration is fast, use a simple list to collect file paths
             List<string> result = new List<string>();
@@ -56,16 +55,15 @@ namespace DejaView.Model
                 return new RetrievedImagePathsResult(result, nSkippedDirectories, nIOExceptions);
             }
 
-            // ConfigureAwait(false): don't come back to UI Thread
-            IEnumerable<string> directories = await Task.Run(() => 
+            // ConfigureAwait(false): don't necessarily come back to UI Thread
+            IEnumerable<string> directories = await Task.Run(() =>
                         Directory.EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories)
-                                                        .Prepend(rootDirectory)).ConfigureAwait(false);
+                                                        .Prepend(rootDirectory), cancellationToken).ConfigureAwait(false);
 
             // Process each directory sequentially in an async loop.
             foreach (string dir in directories)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
                 try
                 {
                     string[] files = await Task.Run(() => Directory.GetFiles(dir), cancellationToken)
@@ -76,19 +74,17 @@ namespace DejaView.Model
                         cancellationToken.ThrowIfCancellationRequested();
 
                         if (imageExtensions.Contains(Path.GetExtension(file)))
-                        {
                             result.Add(file);
-                        }
                     }
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    // Count directories we were not permitted to access.
+                    // Count directories we were not permitted to access
                     nSkippedDirectories++;
                 }
                 catch (IOException)
                 {
-                    // Count directories that encountered an I/O exception.
+                    // Count directories that encountered an I/O exception
                     nIOExceptions++;
                 }
             }
@@ -105,8 +101,6 @@ namespace DejaView.Model
             int processedCount = 0;
             int nSkippedFiles = 0;
             int nFilePaths = filePaths.Count();
-            // Todo: consider non-offloading async against threadpool-starvation if longrunning is not used https://chatgpt.com/c/67f39d44-c62c-800f-b2a2-326aa1e71f51
-            // TODO: Benchmark vs non-await and keeping it in the Threadpool
 
             int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
@@ -134,19 +128,18 @@ namespace DejaView.Model
                     {
                         Interlocked.Increment(ref nSkippedFiles);
                     }
-                    finally
+
+                    if (progress != null)
                     {
-                        if (progress != null)
-                        {
-                            int newCount = Interlocked.Increment(ref processedCount);
-                            progress.Report((int) Math.Ceiling(((double) newCount) / nFilePaths * 100));
-                        }
+                        int newCount = Interlocked.Increment(ref processedCount);
+                        progress.Report((int)Math.Ceiling(((double)newCount) / nFilePaths * 100));
                     }
                 });
 
             return new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles);
         }
 
+        // Less-efficient alternative to ProcessAllFilesLongRunningForEachAsync
         public static async Task<ProcessedImagesResult> ProcessAllFilesNoLongRunningForEachAsync(
             IEnumerable<string> filePaths,
             IProgress<int>? progress = null,
@@ -155,10 +148,8 @@ namespace DejaView.Model
             int processedCount = 0;
             int nSkippedFiles = 0;
             int nFilePaths = filePaths.Count();
-            // Todo: consider non-offloading async against threadpool-starvation if longrunning is not used https://chatgpt.com/c/67f39d44-c62c-800f-b2a2-326aa1e71f51
-            // TODO: Benchmark vs non-await and keeping it in the Threadpool
 
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
+            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2);
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
 
             await Parallel.ForEachAsync(
@@ -173,7 +164,7 @@ namespace DejaView.Model
                     try
                     {
                         byte[] content = await File.ReadAllBytesAsync(file, token);
-                        results[file] = await Task.Run(()=> SharedProcessorMobileNet.RunInference(content), token);
+                        results[file] = await Task.Run(() => SharedProcessorMobileNet.RunInference(content), token);
                     }
                     catch (Exception)
                     {
@@ -192,6 +183,7 @@ namespace DejaView.Model
             return new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles);
         }
 
+        // Less-efficient alternative to ProcessAllFilesLongRunningForEachAsync
         public static Task<ProcessedImagesResult> ProcessAllFilesNoLongRunningForEach(
             IEnumerable<string> filePaths,
             IProgress<int>? progress = null,
@@ -200,7 +192,7 @@ namespace DejaView.Model
             int processedCount = 0;
             int nSkippedFiles = 0;
             int nFilePaths = filePaths.Count();
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
+            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2);
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
 
             Parallel.ForEach(filePaths, new ParallelOptions
@@ -212,9 +204,7 @@ namespace DejaView.Model
             {
                 try
                 {
-                    // Block until the file is read completely
                     byte[] content = File.ReadAllBytesAsync(file, cancellationToken).GetAwaiter().GetResult();
-                    // Block until inference completes
                     results[file] = Task.Run(() => SharedProcessorMobileNet.RunInference(content), cancellationToken)
                                         .GetAwaiter().GetResult();
                 }
@@ -232,6 +222,7 @@ namespace DejaView.Model
             return Task.FromResult(new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles));
         }
 
+        // Less-efficient alternative to ProcessAllFilesLongRunningForEachAsync
         public static Task<ProcessedImagesResult> ProcessAllFilesLongRunningForEach(
             IEnumerable<string> filePaths,
             IProgress<int>? progress = null,
@@ -240,7 +231,7 @@ namespace DejaView.Model
             int processedCount = 0;
             int nSkippedFiles = 0;
             int nFilePaths = filePaths.Count();
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
+            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2);
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
 
             Parallel.ForEach(filePaths, new ParallelOptions
@@ -252,13 +243,11 @@ namespace DejaView.Model
             {
                 try
                 {
-                    // Block until the file is read completely
                     byte[] content = File.ReadAllBytesAsync(file, cancellationToken).GetAwaiter().GetResult();
-                    // Block until inference completes
                     results[file] = Task.Factory.StartNew(
                             () => SharedProcessorMobileNet.RunInference(content),
                             cancellationToken,
-                            TaskCreationOptions.LongRunning, // Creates a new Thread as RunInference is CPU-heavy
+                            TaskCreationOptions.LongRunning,
                             TaskScheduler.Default
                         ).GetAwaiter().GetResult();
                 }
@@ -275,6 +264,5 @@ namespace DejaView.Model
 
             return Task.FromResult(new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles));
         }
-
     }
 }

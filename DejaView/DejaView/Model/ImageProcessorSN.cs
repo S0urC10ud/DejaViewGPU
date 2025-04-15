@@ -47,7 +47,7 @@ namespace DejaView
         {
             int width = image.Width;
             int height = image.Height;
-            // The output array will have three channels (R, G, B) stored in CHW order.
+            // The output array will have three channels (R, G, B) stored in CHW order
             float[] data = new float[3 * width * height];
 
             float[] mean = { 0.485f, 0.456f, 0.406f };

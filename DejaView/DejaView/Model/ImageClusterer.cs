@@ -13,26 +13,25 @@ namespace DejaView.Model
             // Do not block the caller
             return await Task.Run(() =>
             {
-                List<string> keys = imageVectors.Keys.ToList();
-                int n = keys.Count;
+                List<string> filePaths = imageVectors.Keys.ToList();
+                int n = filePaths.Count;
                 ConcurrentBag<(int, int)> similarPairs = new ConcurrentBag<(int, int)>();
 
                 // Counter for completed outer iterations
                 int nCompletedImages = 0;
 
+                // No shared mutual state, usage of Parallel.For possible
                 ParallelOptions options = new ParallelOptions { CancellationToken = cancellationToken };
                 Parallel.For(0, n, options, i =>
                 {
                     for (int j = i + 1; j < n; j++)
                     {
-                        float similarity = CosineSimilarity(imageVectors[keys[i]], imageVectors[keys[j]]);
+                        float similarity = CosineSimilarity(imageVectors[filePaths[i]], imageVectors[filePaths[j]]);
                         if (similarity >= similarityThreshold)
-                        {
                             similarPairs.Add((i, j));
-                        }
                     }
 
-                    // Update progress after processing each outer iteration (each image)
+                    // Update progress after processing each image
                     if (progress != null)
                     {
                         int done = Interlocked.Increment(ref nCompletedImages);
@@ -81,10 +80,11 @@ namespace DejaView.Model
                     {
                         clusters[root] = new List<string>();
                     }
-                    clusters[root].Add(keys[i]);
+                    clusters[root].Add(filePaths[i]);
                 }
 
-                return clusters.Values.ToList().FindAll((c)=> c.Count > 1);
+                // Exclude clusters with just 1 element
+                return clusters.Values.ToList().FindAll((c) => c.Count > 1);
             }, cancellationToken);
         }
 
