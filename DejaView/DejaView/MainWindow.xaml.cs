@@ -160,7 +160,8 @@ namespace DejaView
                 ImagesFoundText = "";
                 ProgressTextStep = "Step 1/2";
                 // We have to come back to the UI thread -> no ConfigureAwait(false) needed
-                RetrievedImagePathsResult retrievedImagePathsResult = await ImageFileScanner.GetAllImageFilesAsync(_selectedDirectory, _cancellationTokenSource.Token);
+                RetrievedImagePathsResult retrievedImagePathsResult = await ImageFileScanner.GetAllImagePathsAsync(_selectedDirectory, _cancellationTokenSource.Token);
+
                 ImagesFoundText = $"Found {retrievedImagePathsResult.files.Count()} images.";
                 if (retrievedImagePathsResult.nSkippedDirectories > 0)
                     ImagesFoundText += $" Could not access {retrievedImagePathsResult.nSkippedDirectories} directories.";
@@ -177,7 +178,7 @@ namespace DejaView
                 }
 
                 // Get all files first to make proper progress bars
-                ProcessedImagesResult processedImagesResult = await ImageFileScanner.ProcessAllFilesAsync(retrievedImagePathsResult.files, ProgressReporter, _cancellationTokenSource.Token);
+                ProcessedImagesResult processedImagesResult = await ImageFileScanner.ProcessAllFilesLongRunningForEachAsync(retrievedImagePathsResult.files, ProgressReporter, _cancellationTokenSource.Token);
 
                 if (processedImagesResult.nSkippedImages > 0)
                     ImagesFoundText += $"\nCould not process {processedImagesResult.nSkippedImages} images. ";
@@ -187,7 +188,6 @@ namespace DejaView
                 ProgressReporter.Report(0);
                 ProgressTextStep = "Step 2/2";
 
-                // Come back to the UI thread for displaying the results
                 clusters = await ImageClusterer.ClusterSimilarImagesAsync(processedImagesResult.embeddings, Similarity, ProgressReporter, _cancellationTokenSource.Token);
                 if (clusters.Count > 0)
                 {
