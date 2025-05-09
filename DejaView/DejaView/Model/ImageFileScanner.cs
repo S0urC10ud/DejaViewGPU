@@ -103,9 +103,8 @@ namespace DejaView.Model
             int nSkippedFiles = 0;
             int nFilePaths = filePaths.Count();
 
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
+            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 4); // Reduce load
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
-
             await Parallel.ForEachAsync(
                 filePaths,
                 new ParallelOptions
@@ -262,6 +261,37 @@ namespace DejaView.Model
                     progress?.Report((int)Math.Ceiling((double)newCount / nFilePaths * 100));
                 }
             });
+
+            return Task.FromResult(new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles));
+        }
+
+        public static Task<ProcessedImagesResult> ProcessAllFilesNoParallelization(
+            IEnumerable<string> filePaths,
+            IProgress<int>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            int processedCount = 0;
+            int nSkippedFiles = 0;
+            int nFilePaths = filePaths.Count();
+            Dictionary<string, float[]> results = new Dictionary<string, float[]>();
+
+            foreach(string file in filePaths)
+            {
+                try
+                {
+                    byte[] content = File.ReadAllBytesAsync(file, cancellationToken).GetAwaiter().GetResult();
+                    results[file] = SharedProcessorMobileNet.RunInference(content);
+                }
+                catch (Exception)
+                {
+                    nSkippedFiles += 1;
+                }
+                finally
+                {
+                    int newCount = ++processedCount;
+                    progress?.Report((int)Math.Ceiling((double)newCount / nFilePaths * 100));
+                }
+            }
 
             return Task.FromResult(new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles));
         }

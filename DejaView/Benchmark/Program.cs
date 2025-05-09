@@ -45,6 +45,12 @@ namespace MyApp.Benchmark
             return ImageFileScanner.ProcessAllFilesNoLongRunningForEach(filePaths, null);
         }
 
+        [Benchmark]
+        public Task ProcessAllFilesNoParallelization()
+        {
+            return ImageFileScanner.ProcessAllFilesNoParallelization(filePaths, null);
+        }
+
         private class SingleRunConfig : ManualConfig
         {
             public SingleRunConfig()
