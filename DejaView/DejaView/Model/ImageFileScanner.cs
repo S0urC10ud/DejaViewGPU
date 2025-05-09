@@ -61,7 +61,7 @@ namespace DejaView.Model
                                                         .Prepend(rootDirectory), cancellationToken)
                                                         .ConfigureAwait(false);
 
-            // Process each directory sequentially in an async loop.
+            // Process each directory sequentially in an async loop (this is fast anyways).
             foreach (string dir in directories)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -103,7 +103,7 @@ namespace DejaView.Model
             int nSkippedFiles = 0;
             int nFilePaths = filePaths.Count();
 
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 4); // Reduce load
+            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
             ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
             await Parallel.ForEachAsync(
                 filePaths,
