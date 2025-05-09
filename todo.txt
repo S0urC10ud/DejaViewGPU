@@ -1,4 +1,0 @@
-x performance measuring
-x create slides, create readme (esp. note little memory demand)
-- set repo to public
-x UI Thread Übergaben anschauen
