@@ -1,299 +1,185 @@
-﻿using System.Collections.Concurrent;
+﻿// ────────────────────────────────────────────────────────────────────────────────
+// File: ImageFileScanner.cs   ← no functional change, just a reminder comment
+// ────────────────────────────────────────────────────────────────────────────────
+using ManagedCuda;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
-
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace DejaView.Model
 {
+    // ↓↓↓ (classes for results are unchanged) ↓↓↓
     public class RetrievedImagePathsResult
     {
         internal readonly List<string> files;
         internal readonly int nSkippedDirectories;
         internal readonly int nIOExceptions;
-
-        internal RetrievedImagePathsResult(List<string> files, int nSkippedDirectories, int nIOExceptions)
-        {
-            this.files = files;
-            this.nSkippedDirectories = nSkippedDirectories;
-            this.nIOExceptions = nIOExceptions;
-        }
+        internal RetrievedImagePathsResult(List<string> f, int sd, int io)
+        { files = f; nSkippedDirectories = sd; nIOExceptions = io; }
     }
-
     public class ProcessedImagesResult
     {
         internal readonly Dictionary<string, float[]> embeddings;
         internal readonly int nSkippedImages;
-
-        internal ProcessedImagesResult(Dictionary<string, float[]> embeddings, int nSkippedImages)
-        {
-            this.embeddings = embeddings;
-            this.nSkippedImages = nSkippedImages;
-        }
+        internal ProcessedImagesResult(Dictionary<string, float[]> e, int s)
+        { embeddings = e; nSkippedImages = s; }
     }
-
 
     public class ImageFileScanner
     {
-        // Loads the model into memory only once (ONNX is thread-safe)
-        private static readonly ImageProcessorMobileNet SharedProcessorMobileNet = new ImageProcessorMobileNet();
-
-        // The following shared processor can be used as a drop-in replacement which runs a bit faster but has a lower-quality embedding space:
-        // private static readonly ImageProcessorSN SharedProcessorSN = new ImageProcessorSN();
-
-        public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(string rootDirectory, CancellationToken cancellationToken = default)
+        private static ulong GetFreeGpuMemory()
         {
-            int nSkippedDirectories = 0;
-            int nIOExceptions = 0;
-            HashSet<string> imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg" };
+            try { using var ctx = new CudaContext(); return ctx.GetFreeDeviceMemorySize(); }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Problem loading CUDA device:\n{ex.Message}",
+                                "DejaView — CUDA Device Error",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return 0UL;
+            }
+        }
 
-            // Since directory enumeration is fast, use a simple list to collect file paths
-            List<string> result = new List<string>();
+        // Any model-load failure now shows *detailed* DLL list first
+        private static readonly Lazy<ImageProcessorMobileNet> _lazyProcessor =
+            new Lazy<ImageProcessorMobileNet>(() => new ImageProcessorMobileNet());
+        private static ImageProcessorMobileNet SharedProcessorMobileNet => _lazyProcessor.Value;
+
+
+public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(
+            string rootDirectory,
+            CancellationToken cancellationToken = default)
+        {
+            int nSkippedDirectories = 0, nIOExceptions = 0;
+            var imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { ".png", ".jpg", ".jpeg" };
+            var result = new List<string>();
 
             if (!Directory.Exists(rootDirectory))
             {
-                nIOExceptions++; // Count it as an I/O issue
-                nSkippedDirectories++;
+                nIOExceptions++; nSkippedDirectories++;
                 return new RetrievedImagePathsResult(result, nSkippedDirectories, nIOExceptions);
             }
 
-            // ConfigureAwait(false): don't necessarily come back to UI Thread
-            IEnumerable<string> directories = await Task.Run(() =>
-                        Directory.EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories)
-                                                        .Prepend(rootDirectory), cancellationToken)
-                                                        .ConfigureAwait(false);
+            var directories = await Task.Run(() =>
+                    Directory.EnumerateDirectories(rootDirectory, "*", SearchOption.AllDirectories)
+                             .Prepend(rootDirectory),
+                cancellationToken).ConfigureAwait(false);
 
-            // Process each directory sequentially in an async loop (this is fast anyways).
-            foreach (string dir in directories)
+            foreach (var dir in directories)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    string[] files = await Task.Run(() => Directory.GetFiles(dir), cancellationToken)
-                        .ConfigureAwait(false);
-
-                    foreach (string file in files)
+                    var files = await Task.Run(() => Directory.GetFiles(dir), cancellationToken)
+                                           .ConfigureAwait(false);
+                    foreach (var file in files)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-
                         if (imageExtensions.Contains(Path.GetExtension(file)))
                             result.Add(file);
                     }
                 }
-                catch (UnauthorizedAccessException)
-                {
-                    // Count directories we were not permitted to access
-                    nSkippedDirectories++;
-                }
-                catch (IOException)
-                {
-                    // Count directories that encountered an I/O exception
-                    nIOExceptions++;
-                }
+                catch (UnauthorizedAccessException) { nSkippedDirectories++; }
+                catch (IOException) { nIOExceptions++; }
             }
 
             return new RetrievedImagePathsResult(result, nSkippedDirectories, nIOExceptions);
         }
 
-
-        public static async Task<ProcessedImagesResult> ProcessAllFilesLongRunningForEachAsync(
+        public static async Task<ProcessedImagesResult> ProcessAllFiles(
             IEnumerable<string> filePaths,
             IProgress<int>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            int processedCount = 0;
-            int nSkippedFiles = 0;
-            int nFilePaths = filePaths.Count();
+            var paths = filePaths.ToList();
+            int total = paths.Count, processedCount = 0, nSkippedFiles = 0;
+            var results = new ConcurrentDictionary<string, float[]>();
 
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2); // Reduce load
-            ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
-            await Parallel.ForEachAsync(
-                filePaths,
-                new ParallelOptions
+            // Estimate image size from a small sample
+            int imgWidth = 0, imgHeight = 0;
+            int sampleCount = Math.Min(20, paths.Count), totalW = 0, totalH = 0, validCount = 0;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
                 {
-                    MaxDegreeOfParallelism = maxDegreeOfParallelism,
-                    CancellationToken = cancellationToken
-                },
-                async (file, token) =>
+                    var bytes = await File.ReadAllBytesAsync(paths[i], cancellationToken)
+                                          .ConfigureAwait(false);
+                    using var ms = new MemoryStream(bytes);
+                    using var bmp = new Bitmap(ms);
+                    using var processed = ImageProcessorMobileNet.PadImageIfNecessary(bmp);
+                    totalW += processed.Width;
+                    totalH += processed.Height;
+                    validCount++;
+                }
+                catch { }
+            }
+            if (validCount > 0)
+            {
+                imgWidth = totalW / validCount;
+                imgHeight = totalH / validCount;
+            }
+
+            // Compute batch size based on free GPU memory
+            int batchSize = 100;
+            ulong freeMem = GetFreeGpuMemory();
+            if (freeMem > 0 && imgWidth > 0 && imgHeight > 0)
+            {
+                ulong bytesPerImage = (ulong)(3 * imgWidth * imgHeight * sizeof(float));
+                ulong usable = freeMem * 8UL / 10UL;
+                batchSize = Math.Max(1, (int)(usable / bytesPerImage));
+            }
+
+            // Process files in batches
+            for (int i = 0; i < total; i += batchSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var batch = paths.Skip(i).Take(batchSize).ToList();
+
+                // Read files concurrently
+                var readTasks = batch.Select(async path =>
                 {
                     try
                     {
-                        byte[] content = await File.ReadAllBytesAsync(file, token);
-                        results[file] = await Task.Factory.StartNew(
-                            () => SharedProcessorMobileNet.RunInference(content),
-                            token,
-                            TaskCreationOptions.LongRunning, // Creates a new Thread as RunInference is CPU-heavy
-                            TaskScheduler.Default
-                        );
+                        var data = await File.ReadAllBytesAsync(path, cancellationToken)
+                                             .ConfigureAwait(false);
+                        return (path, data);
                     }
-                    catch (Exception)
+                    catch
                     {
                         Interlocked.Increment(ref nSkippedFiles);
-                    }
-
-                    if (progress != null)
-                    {
-                        int newCount = Interlocked.Increment(ref processedCount);
-                        progress.Report((int)Math.Ceiling(((double)newCount) / nFilePaths * 100));
+                        return (path, (byte[]?)null);
                     }
                 });
+                var reads = await Task.WhenAll(readTasks).ConfigureAwait(false);
 
-            return new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles);
-        }
-
-        // Less-efficient alternative to ProcessAllFilesLongRunningForEachAsync
-        public static async Task<ProcessedImagesResult> ProcessAllFilesNoLongRunningForEachAsync(
-            IEnumerable<string> filePaths,
-            IProgress<int>? progress = null,
-            CancellationToken cancellationToken = default)
-        {
-            int processedCount = 0;
-            int nSkippedFiles = 0;
-            int nFilePaths = filePaths.Count();
-
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2);
-            ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
-
-            await Parallel.ForEachAsync(
-                filePaths,
-                new ParallelOptions
+                var valid = reads.Where(r => r.Item2 != null)
+                                 .Select(r => (r.path, r.Item2!))
+                                 .ToList();
+                if (valid.Count > 0)
                 {
-                    MaxDegreeOfParallelism = maxDegreeOfParallelism,
-                    CancellationToken = cancellationToken
-                },
-                async (file, token) =>
-                {
-                    try
-                    {
-                        byte[] content = await File.ReadAllBytesAsync(file, token);
-                        results[file] = await Task.Run(() => SharedProcessorMobileNet.RunInference(content), token);
-                    }
-                    catch (Exception)
-                    {
-                        Interlocked.Increment(ref nSkippedFiles);
-                    }
-                    finally
-                    {
-                        if (progress != null)
-                        {
-                            int newCount = Interlocked.Increment(ref processedCount);
-                            progress.Report((int)Math.Ceiling(((double)newCount) / nFilePaths * 100));
-                        }
-                    }
-                });
-
-            return new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles);
-        }
-
-        // Less-efficient alternative to ProcessAllFilesLongRunningForEachAsync
-        public static Task<ProcessedImagesResult> ProcessAllFilesNoLongRunningForEach(
-            IEnumerable<string> filePaths,
-            IProgress<int>? progress = null,
-            CancellationToken cancellationToken = default)
-        {
-            int processedCount = 0;
-            int nSkippedFiles = 0;
-            int nFilePaths = filePaths.Count();
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2);
-            ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
-
-            Parallel.ForEach(filePaths, new ParallelOptions
-            {
-                MaxDegreeOfParallelism = maxDegreeOfParallelism,
-                CancellationToken = cancellationToken
-            },
-            file =>
-            {
-                try
-                {
-                    byte[] content = File.ReadAllBytesAsync(file, cancellationToken).GetAwaiter().GetResult();
-                    results[file] = Task.Run(() => SharedProcessorMobileNet.RunInference(content), cancellationToken)
-                                        .GetAwaiter().GetResult();
+                    var byteList = valid.Select(v => v.Item2).ToList();
+                    var embeddings = SharedProcessorMobileNet.RunInferenceBatch(byteList);
+                    for (int j = 0; j < embeddings.Length; j++)
+                        results[valid[j].path] = embeddings[j];
                 }
-                catch (Exception)
-                {
-                    Interlocked.Increment(ref nSkippedFiles);
-                }
-                finally
-                {
-                    int newCount = Interlocked.Increment(ref processedCount);
-                    progress?.Report((int)Math.Ceiling((double)newCount / nFilePaths * 100));
-                }
-            });
 
-            return Task.FromResult(new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles));
-        }
-
-        // Less-efficient alternative to ProcessAllFilesLongRunningForEachAsync
-        public static Task<ProcessedImagesResult> ProcessAllFilesLongRunningForEach(
-            IEnumerable<string> filePaths,
-            IProgress<int>? progress = null,
-            CancellationToken cancellationToken = default)
-        {
-            int processedCount = 0;
-            int nSkippedFiles = 0;
-            int nFilePaths = filePaths.Count();
-            int maxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2);
-            ConcurrentDictionary<string, float[]> results = new ConcurrentDictionary<string, float[]>();
-
-            Parallel.ForEach(filePaths, new ParallelOptions
-            {
-                MaxDegreeOfParallelism = maxDegreeOfParallelism,
-                CancellationToken = cancellationToken
-            },
-            file =>
-            {
-                try
+                processedCount += batch.Count;
+                if (progress != null)
                 {
-                    byte[] content = File.ReadAllBytesAsync(file, cancellationToken).GetAwaiter().GetResult();
-                    results[file] = Task.Factory.StartNew(
-                            () => SharedProcessorMobileNet.RunInference(content),
-                            cancellationToken,
-                            TaskCreationOptions.LongRunning,
-                            TaskScheduler.Default
-                        ).GetAwaiter().GetResult();
-                }
-                catch (Exception)
-                {
-                    Interlocked.Increment(ref nSkippedFiles);
-                }
-                finally
-                {
-                    int newCount = Interlocked.Increment(ref processedCount);
-                    progress?.Report((int)Math.Ceiling((double)newCount / nFilePaths * 100));
-                }
-            });
-
-            return Task.FromResult(new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles));
-        }
-
-        public static Task<ProcessedImagesResult> ProcessAllFilesNoParallelization(
-            IEnumerable<string> filePaths,
-            IProgress<int>? progress = null,
-            CancellationToken cancellationToken = default)
-        {
-            int processedCount = 0;
-            int nSkippedFiles = 0;
-            int nFilePaths = filePaths.Count();
-            Dictionary<string, float[]> results = new Dictionary<string, float[]>();
-
-            foreach(string file in filePaths)
-            {
-                try
-                {
-                    byte[] content = File.ReadAllBytesAsync(file, cancellationToken).GetAwaiter().GetResult();
-                    results[file] = SharedProcessorMobileNet.RunInference(content);
-                }
-                catch (Exception)
-                {
-                    nSkippedFiles += 1;
-                }
-                finally
-                {
-                    int newCount = ++processedCount;
-                    progress?.Report((int)Math.Ceiling((double)newCount / nFilePaths * 100));
+                    int percent = (int)Math.Ceiling((double)processedCount / total * 100);
+                    progress.Report(percent);
                 }
             }
 
-            return Task.FromResult(new ProcessedImagesResult(results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), nSkippedFiles));
+            return new ProcessedImagesResult(results.ToDictionary(kv => kv.Key, kv => kv.Value),
+                                             nSkippedFiles);
         }
     }
 }

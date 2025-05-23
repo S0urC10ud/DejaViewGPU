@@ -176,7 +176,7 @@ namespace DejaView
                 }
 
                 // Get all files first to enable proper progress reporting
-                ProcessedImagesResult processedImagesResult = await ImageFileScanner.ProcessAllFilesLongRunningForEachAsync(retrievedImagePathsResult.files, ProgressReporter, _cancellationTokenSource.Token);
+                ProcessedImagesResult processedImagesResult = await ImageFileScanner.ProcessAllFiles(retrievedImagePathsResult.files, ProgressReporter, _cancellationTokenSource.Token);
 
                 if (processedImagesResult.nSkippedImages > 0)
                     ImagesFoundText += processedImagesResult.nSkippedImages == 1 ? "\nCould not process 1 image. " : $"\nCould not process {processedImagesResult.nSkippedImages} images. ";
