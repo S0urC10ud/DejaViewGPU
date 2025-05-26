@@ -1,6 +1,6 @@
 # DejaView GPU
 
-This project is a speedup of our original [DejaView CPU](https://github.com/lisakrimbacher/DejaView) implementation. Note that this is faster by orders of magnitude by using image re-scaling and batching. Nonetheless, there is a loss of quality because all images are initially re-scaled to a fixed scale to better be parallelized in batches of the same dimension.
+This project is a speedup of our original [DejaView CPU](https://github.com/lisakrimbacher/DejaView) implementation. Check out the releases for a binary that should work out of the box. Note that this is faster than the original implementation by orders of magnitude by using image re-scaling and batching. Nonetheless, there is a loss of quality because all images are initially re-scaled to a fixed scale to better be parallelized in batches of the same dimension on the GPU.
 
 Requirements:
 - Windows x64 (note that you only build for x64 and not "Any" in Visual Studio)
