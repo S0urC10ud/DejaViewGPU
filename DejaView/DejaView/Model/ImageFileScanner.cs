@@ -127,7 +127,7 @@ public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(
             }
 
             // Compute batch size based on free GPU memory
-            int batchSize = 100;
+            int batchSize = 0;
             ulong freeMem = GetFreeGpuMemory();
             if (freeMem > 0 && imgWidth > 0 && imgHeight > 0)
             {
@@ -135,6 +135,8 @@ public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(
                 ulong usable = freeMem * 8UL / 10UL;
                 batchSize = Math.Max(1, (int)(usable / bytesPerImage));
             }
+
+            batchSize = Math.Min(4, batchSize); // Limit for padding overhead (images are padded to the same shape within one batch)
 
             // Process files in batches
             for (int i = 0; i < total; i += batchSize)

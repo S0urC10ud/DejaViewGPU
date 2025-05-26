@@ -1,14 +1,8 @@
 ﻿using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
-using System;
-using System.Collections.Generic;
-using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;   // NativeLibrary
-using System.Windows.Forms;
 
 namespace DejaView
 {
@@ -17,20 +11,8 @@ namespace DejaView
         private const int MinSize = 224;
         private readonly InferenceSession _session;
 
-        // DLLs the CUDA provider (ORT 1.22.0 + CUDA 11.6) needs
-        private static readonly string[] _expectedNativeDlls =
-        {
-            "onnxruntime_providers_cuda.dll",
-            "cudart64_116.dll",
-            "cublas64_11.dll",
-            "cublasLt64_11.dll",
-            "cudnn64_8.dll",
-            "cufft64_10.dll"
-        };
-
         public ImageProcessorMobileNet()
         {
-            // 1️⃣ Load embedded ONNX model bytes
             Assembly asm = Assembly.GetExecutingAssembly();
             using Stream? modelStream =
                 asm.GetManifestResourceStream("DejaView.Static.mobilenetv2_dynamic.onnx")
@@ -43,14 +25,12 @@ namespace DejaView
                 modelBytes = ms.ToArray();
             }
 
-            // 2️⃣ Build SessionOptions & append CUDA
             var opts = new SessionOptions();
             try
             {
                 opts.AppendExecutionProvider_CUDA();
                 Console.WriteLine("[DejaView] CUDA execution provider appended.");
             }
-            /* ✱✱ NEW ✱✱ — catch OnnxRuntimeException right here */
             catch (OnnxRuntimeException ortEx)
             {
                 ShowMissingNativeDlls(ortEx);
@@ -66,8 +46,6 @@ namespace DejaView
                 ShowMissingNativeDlls(epEx);
                 throw;
             }
-
-            // 3️⃣ Create the session (rarely reached if CUDA provider failed above)
             try
             {
                 _session = new InferenceSession(modelBytes, opts);
@@ -82,69 +60,75 @@ namespace DejaView
                 throw;
             }
         }
-
-        // ─────────────────────────────────────────────────────────────────────────
-        //  Show which DLLs cannot be loaded
-        // ─────────────────────────────────────────────────────────────────────────
         private static void ShowMissingNativeDlls(Exception root)
         {
-            var missing = new List<string>();
-            foreach (string dll in _expectedNativeDlls)
-            {
-                if (!NativeLibrary.TryLoad(dll, out _))
-                    missing.Add(dll);
-            }
-
-            string list = missing.Count == 0
-                          ? "(none – every DLL found, but one of them failed internally)"
-                          : string.Join("\n  • ", missing);
-
             MessageBox.Show(
-                "CUDA execution provider could NOT be loaded.\n\n" +
-                "Missing or unloadable DLLs:\n  • " + list +
-                "\n\nOriginal error message:\n" + root.Message,
+                "Make sure CUDA 12 and cuDNN 9.10 are installed and their bin directory is in PATH; If you build from source, please choose the build option x64 instead of Any (ARM wont work)",
                 "DejaView — Missing Native Dependencies",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
-        // ─────────────────────────────────────────────────────────────────────────
-        //  Rest of the class (unchanged from previous version)
-        // ─────────────────────────────────────────────────────────────────────────
         public float[][] RunInferenceBatch(IEnumerable<byte[]> imageBytesList)
         {
-            var images = imageBytesList.ToList();
-            if (!images.Any()) return Array.Empty<float[]>();
-
-            int batch = images.Count;
-            var norm = new List<float[]>();
-            int w = 0, h = 0;
-
-            foreach (var bytes in images)
+            // 1) Decode & pad small images up to MinSize×MinSize
+            var padded = imageBytesList.Select(bytes =>
             {
                 using var ms = new MemoryStream(bytes);
                 using var bmp = new Bitmap(ms);
-                using var pad = PadImageIfNecessary(bmp);
-                if (w == 0) { w = pad.Width; h = pad.Height; }
-                norm.Add(NormalizeImage(pad));
+                return PadImageIfNecessary(bmp);     // returns *new* Bitmap we own
+            }).ToList();
+
+            if (padded.Count == 0) return Array.Empty<float[]>();
+            int batch = padded.Count;
+
+            // 2) Find the largest W/H across the batch
+            int targetW = padded.Max(b => b.Width);
+            int targetH = padded.Max(b => b.Height);
+            int sliceLen = 3 * targetW * targetH;    // length of one sample after normalisation
+
+            // 3) Letter-box every bitmap into exactly targetW × targetH
+            var uniform = padded.Select(src =>
+            {
+                var canvas = new Bitmap(targetW, targetH, PixelFormat.Format24bppRgb);
+                using var g = Graphics.FromImage(canvas);
+                g.Clear(Color.White);
+
+                int x = (targetW - src.Width) / 2;
+                int y = (targetH - src.Height) / 2;
+                g.DrawImage(src, x, y, src.Width, src.Height);
+
+                src.Dispose();                      // free the intermediate padded bitmap
+                return canvas;                      // caller disposes *this* one after use
+            }).ToList();
+
+            // 4) Normalise → float[] and build tensor
+            var tensor = new DenseTensor<float>(new[] { batch, 3, targetH, targetW });
+            var span = tensor.Buffer.Span;
+
+            for (int i = 0; i < batch; i++)
+            {
+                float[] norm = NormalizeImage(uniform[i]);   // returns 3*W*H floats
+                norm.CopyTo(span.Slice(i * sliceLen, sliceLen));
+                uniform[i].Dispose();                        // no longer needed
             }
 
-            int len = norm[0].Length;
-            var tensor = new DenseTensor<float>(new[] { batch, 3, h, w });
-            for (int i = 0; i < batch; i++)
-                norm[i].CopyTo(tensor.Buffer.Span.Slice(i * len, len));
+            // 5) Run the model
+            string inputName = _session.InputMetadata.Keys.First();
+            using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
+                _session.Run(new[] { NamedOnnxValue.CreateFromTensor(inputName, tensor) });
 
-            string input = _session.InputMetadata.Keys.First();
-            using var res = _session.Run(new[] { NamedOnnxValue.CreateFromTensor(input, tensor) });
-            var outT = res.First().AsTensor<float>();
-            int feat = outT.Dimensions[1];
-            var flat = outT.ToArray();
+            var outTensor = results.First().AsTensor<float>();
+            int features = outTensor.Dimensions[1];
+            var flat = outTensor.ToArray();
 
+            // 6) Split the flat output into per-image arrays
             var outputs = new float[batch][];
             for (int i = 0; i < batch; i++)
-                outputs[i] = flat.Skip(i * feat).Take(feat).ToArray();
+                outputs[i] = flat.Skip(i * features).Take(features).ToArray();
 
             return outputs;
         }
+
 
         public static Bitmap PadImageIfNecessary(Bitmap img)
         {
