@@ -1,20 +1,10 @@
-﻿// ────────────────────────────────────────────────────────────────────────────────
-// File: ImageFileScanner.cs   ← no functional change, just a reminder comment
-// ────────────────────────────────────────────────────────────────────────────────
-using ManagedCuda;
-using System;
+﻿
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+
 
 namespace DejaView.Model
 {
-    // ↓↓↓ (classes for results are unchanged) ↓↓↓
     public class RetrievedImagePathsResult
     {
         internal readonly List<string> files;
@@ -33,30 +23,16 @@ namespace DejaView.Model
 
     public class ImageFileScanner
     {
-        private static ulong GetFreeGpuMemory()
-        {
-            try { using var ctx = new CudaContext(); return ctx.GetFreeDeviceMemorySize(); }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Problem loading CUDA device:\n{ex.Message}",
-                                "DejaView — CUDA Device Error",
-                                MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return 0UL;
-            }
-        }
-
-        // Any model-load failure now shows *detailed* DLL list first
         private static readonly Lazy<ImageProcessorMobileNet> _lazyProcessor =
-            new Lazy<ImageProcessorMobileNet>(() => new ImageProcessorMobileNet());
-        private static ImageProcessorMobileNet SharedProcessorMobileNet => _lazyProcessor.Value;
+            new(() => new ImageProcessorMobileNet());
+        private static ImageProcessorMobileNet Processor => _lazyProcessor.Value;
 
-
-public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(
+        public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(
             string rootDirectory,
             CancellationToken cancellationToken = default)
         {
             int nSkippedDirectories = 0, nIOExceptions = 0;
-            var imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            var imageExt = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { ".png", ".jpg", ".jpeg" };
             var result = new List<string>();
 
@@ -81,7 +57,7 @@ public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(
                     foreach (var file in files)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        if (imageExtensions.Contains(Path.GetExtension(file)))
+                        if (imageExt.Contains(Path.GetExtension(file)))
                             result.Add(file);
                     }
                 }
@@ -97,91 +73,47 @@ public static async Task<RetrievedImagePathsResult> GetAllImagePathsAsync(
             IProgress<int>? progress = null,
             CancellationToken cancellationToken = default)
         {
+            const int BatchSize = 64;
             var paths = filePaths.ToList();
-            int total = paths.Count, processedCount = 0, nSkippedFiles = 0;
-            var results = new ConcurrentDictionary<string, float[]>();
+            int total = paths.Count, processed = 0, skipped = 0;
+            var embeddings = new ConcurrentDictionary<string, float[]>();
 
-            // Estimate image size from a small sample
-            int imgWidth = 0, imgHeight = 0;
-            int sampleCount = Math.Min(20, paths.Count), totalW = 0, totalH = 0, validCount = 0;
-            for (int i = 0; i < sampleCount; i++)
+            for (int i = 0; i < total; i += BatchSize)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    var bytes = await File.ReadAllBytesAsync(paths[i], cancellationToken)
-                                          .ConfigureAwait(false);
-                    using var ms = new MemoryStream(bytes);
-                    using var bmp = new Bitmap(ms);
-                    using var processed = ImageProcessorMobileNet.PadImageIfNecessary(bmp);
-                    totalW += processed.Width;
-                    totalH += processed.Height;
-                    validCount++;
-                }
-                catch { }
-            }
-            if (validCount > 0)
-            {
-                imgWidth = totalW / validCount;
-                imgHeight = totalH / validCount;
-            }
+                var batchPaths = paths.Skip(i).Take(BatchSize).ToList();
 
-            // Compute batch size based on free GPU memory
-            int batchSize = 0;
-            ulong freeMem = GetFreeGpuMemory();
-            if (freeMem > 0 && imgWidth > 0 && imgHeight > 0)
-            {
-                ulong bytesPerImage = (ulong)(3 * imgWidth * imgHeight * sizeof(float));
-                ulong usable = freeMem * 8UL / 10UL;
-                batchSize = Math.Max(1, (int)(usable / bytesPerImage));
-            }
-
-            batchSize = Math.Min(4, batchSize); // Limit for padding overhead (images are padded to the same shape within one batch)
-
-            // Process files in batches
-            for (int i = 0; i < total; i += batchSize)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var batch = paths.Skip(i).Take(batchSize).ToList();
-
-                // Read files concurrently
-                var readTasks = batch.Select(async path =>
+                // read images concurrently
+                var readTasks = batchPaths.Select(async p =>
                 {
                     try
                     {
-                        var data = await File.ReadAllBytesAsync(path, cancellationToken)
-                                             .ConfigureAwait(false);
-                        return (path, data);
+                        var data = await File.ReadAllBytesAsync(p, cancellationToken);
+                        return (p, data);
                     }
                     catch
                     {
-                        Interlocked.Increment(ref nSkippedFiles);
-                        return (path, (byte[]?)null);
+                        Interlocked.Increment(ref skipped);
+                        return (p, (byte[]?)null);
                     }
                 });
-                var reads = await Task.WhenAll(readTasks).ConfigureAwait(false);
 
-                var valid = reads.Where(r => r.Item2 != null)
-                                 .Select(r => (r.path, r.Item2!))
-                                 .ToList();
+                var read = await Task.WhenAll(readTasks).ConfigureAwait(false);
+                var valid = read.Where(r => r.Item2 != null).ToList();
                 if (valid.Count > 0)
                 {
-                    var byteList = valid.Select(v => v.Item2).ToList();
-                    var embeddings = SharedProcessorMobileNet.RunInferenceBatch(byteList);
-                    for (int j = 0; j < embeddings.Length; j++)
-                        results[valid[j].path] = embeddings[j];
+                    var imgBytes = valid.Select(v => v.Item2!).ToList();
+                    float[][] batchEmb = Processor.RunInferenceBatch(imgBytes);
+                    for (int k = 0; k < valid.Count; k++)
+                        embeddings[valid[k].p] = batchEmb[k];
                 }
 
-                processedCount += batch.Count;
-                if (progress != null)
-                {
-                    int percent = (int)Math.Ceiling((double)processedCount / total * 100);
-                    progress.Report(percent);
-                }
+                processed += batchPaths.Count;
+                int pct = (int)Math.Ceiling((double)processed / total * 100);
+                progress?.Report(pct);
             }
 
-            return new ProcessedImagesResult(results.ToDictionary(kv => kv.Key, kv => kv.Value),
-                                             nSkippedFiles);
+            return new ProcessedImagesResult(embeddings.ToDictionary(kv => kv.Key, kv => kv.Value), skipped);
         }
     }
 }
