@@ -14,7 +14,7 @@ namespace DejaView
 {
     internal sealed class ImageProcessorMobileNet : IDisposable
     {
-        private const int TargetSize = 200;
+        private const int TargetSize = 400;
         private static readonly float[] Mean = { .485f, .456f, .406f };
         private static readonly float[] Std = { .229f, .224f, .225f };
 
