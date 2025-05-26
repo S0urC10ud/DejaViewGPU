@@ -1,4 +1,11 @@
-# DejaView
+# DejaView GPU
+
+This project is a speedup of our original [DejaView CPU](https://github.com/lisakrimbacher/DejaView) implementation. Note that this is faster by orders of magnitude by using image re-scaling and batching. Nonetheless, there is a loss of quality because all images are initially re-scaled to a fixed scale to better be parallelized in batches of the same dimension.
+
+Requirements:
+- Windows x64 (note that you only build for x64 and not "Any" in Visual Studio)
+- CUDA 12.x (and adding /bin to path)
+- cuDNN 9.x (and adding /bin to path)
 
 <img src="usage-example.png" alt="DejaView Screenshot" width="500">
 
