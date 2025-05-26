@@ -219,9 +219,8 @@ namespace DejaView
             StartOverCancellationToken = new CancellationTokenSource();
             ClearImages();
             spinnerOverlay.Visibility = Visibility.Visible;
-
-            btnPrevious.IsEnabled = currClusterId != 0;
-            btnNext.IsEnabled = currClusterId != clusters.Count - 1;
+            btnNext.IsEnabled = false;
+            btnPrevious.IsEnabled = false;
 
             try
             {
@@ -236,6 +235,9 @@ namespace DejaView
             {
                 ClearImages();
             }
+
+            btnPrevious.IsEnabled = currClusterId != 0;
+            btnNext.IsEnabled = currClusterId != clusters.Count - 1;
 
             spinnerOverlay.Visibility = Visibility.Collapsed;
         }
